@@ -1,4 +1,5 @@
 # Imports
+# https://github.com/Viral-Doshi/Gesture-Controlled-Virtual-Mouse/blob/main/README.md
 
 import cv2
 import mediapipe as mp
@@ -277,6 +278,46 @@ class Controller:
     prev_hand = None
     pinch_threshold = 0.3
     
+    # Initialize these lazily
+    volume = None
+    
+    @classmethod
+    def init_volume(cls):
+        """Robustly initialize volume control for different pycaw versions."""
+        if cls.volume is not None:
+            return
+            
+        try:
+            # Get the speakers device
+            devices = AudioUtilities.GetSpeakers()
+            
+            # CHECK: Handle different pycaw versions
+            # If 'devices' has an 'Activate' method (Old pycaw / COM pointer)
+            if hasattr(devices, 'Activate'):
+                interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                cls.volume = cast(interface, POINTER(IAudioEndpointVolume))
+            # If 'devices' is a wrapper object (New pycaw), use .EndpointVolume
+            elif hasattr(devices, 'EndpointVolume'):
+                cls.volume = devices.EndpointVolume
+            else:
+                print("Warning: Could not determine volume interface.")
+                
+        except Exception as e:
+            print(f"Warning: Volume control could not be initialized. {e}")
+            cls.volume = None
+
+    @staticmethod
+    def get_current_brightness():
+        """Safely get brightness handling list or int return types."""
+        try:
+            val = sbcontrol.get_brightness(display=0)
+            # sbcontrol often returns a list like [50], we need the int 50
+            if isinstance(val, list):
+                return val[0]
+            return val
+        except:
+            return 50 # Default fallback
+
     def getpinchylv(hand_result):
         """returns distance beween starting pinch y coord and current hand position y coord."""
         dist = round((Controller.pinchstartycoord - hand_result.landmark[8].y)*10,1)
@@ -289,26 +330,37 @@ class Controller:
     
     def changesystembrightness():
         """sets system brightness based on 'Controller.pinchlv'."""
-        currentBrightnessLv = sbcontrol.get_brightness(display=0)/100.0
+        # Use safe getter
+        current = Controller.get_current_brightness()
+        currentBrightnessLv = current / 100.0
+        
         currentBrightnessLv += Controller.pinchlv/50.0
         if currentBrightnessLv > 1.0:
             currentBrightnessLv = 1.0
         elif currentBrightnessLv < 0.0:
             currentBrightnessLv = 0.0       
-        sbcontrol.fade_brightness(int(100*currentBrightnessLv) , start = sbcontrol.get_brightness(display=0))
+        
+        # Apply brightness safely
+        sbcontrol.fade_brightness(int(100*currentBrightnessLv), start=current)
     
     def changesystemvolume():
         """sets system volume based on 'Controller.pinchlv'."""
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        volume = cast(interface, POINTER(IAudioEndpointVolume))
-        currentVolumeLv = volume.GetMasterVolumeLevelScalar()
-        currentVolumeLv += Controller.pinchlv/50.0
-        if currentVolumeLv > 1.0:
-            currentVolumeLv = 1.0
-        elif currentVolumeLv < 0.0:
-            currentVolumeLv = 0.0
-        volume.SetMasterVolumeLevelScalar(currentVolumeLv, None)
+        # Initialize volume if it hasn't been done yet
+        if Controller.volume is None:
+            Controller.init_volume()
+            if Controller.volume is None: return # Skip if still failed
+
+        try:
+            currentVolumeLv = Controller.volume.GetMasterVolumeLevelScalar()
+            currentVolumeLv += Controller.pinchlv/50.0
+            if currentVolumeLv > 1.0:
+                currentVolumeLv = 1.0
+            elif currentVolumeLv < 0.0:
+                currentVolumeLv = 0.0
+            Controller.volume.SetMasterVolumeLevelScalar(currentVolumeLv, None)
+        except Exception as e:
+            # Prevent crashing if volume access is blocked
+            pass
     
     def scrollVertical():
         """scrolls on screen vertically."""
