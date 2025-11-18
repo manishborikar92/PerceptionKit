@@ -530,3 +530,5 @@ if __name__ == "__main__":
     )
     mouse = AdvancedVirtualMouse(config)
     mouse.run()
+
+# python advanced_virtual_mouse.py
