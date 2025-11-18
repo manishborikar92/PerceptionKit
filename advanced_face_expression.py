@@ -404,6 +404,7 @@ class AdvancedFaceExpressionDetector:
             avg_fps = np.mean(fps_history)
             
             img = cv2.flip(img, 1)
+            h, w, _ = img.shape
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             results = self.face_mesh.process(img_rgb)
             
